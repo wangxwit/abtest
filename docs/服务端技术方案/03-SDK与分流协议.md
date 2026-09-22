@@ -1,8 +1,10 @@
 # SDK 与分流协议
 
-设计 v1.2 · 2026-09-23 · [返回总览](./README.md)
+设计 v1.3 · 2026-09-23 · [返回总览](./README.md)
 
 本文为待实施 SDK 契约；当前只有浏览器模拟器，没有生产 SDK。HTTP 字段见[接口协议](./02-接口协议.md)，授权见 [Namespace 与权限设计](./05-Namespace与权限设计.md)。
+
+v1.3 控制库限定 30 张表，不改变 SDK 对外身份或分桶字节。experiment_revision、variant_id 和 analysis_plan_version_id 来自 experiment_run 冻结契约；projection/bundle 是 release 对象产物中的固定索引及文件，manifest 是短期签名协议，均不要求同名独立表。事件日志、资格 KV、对象存储与遥测沿用既有数据链路，见 [数据库设计](./01-数据库设计.md)。
 
 ## 1. SDK 分工与接入模式
 
@@ -29,7 +31,7 @@
 | 事件 | event.ingest；scope、producer、类型均匹配可信凭证 |
 | 模拟／强制分组／诊断 | 额外 runtime.debug 与相关资源 read；仅沙箱，不写生产事实 |
 
-机器凭证唯一绑定 Namespace／环境／服务／principal，动作取凭证上限与当前角色绑定交集。客户端声明的 scope、service、Key 或自定义头不能覆盖可信凭证范围。成员不自动授资源 read；owner、标签不授权限。引用不继承权限，规则编译必须完整校验后再做授权投影。
+机器凭证唯一绑定 Namespace／环境／服务／principal；首期只接受 principal 直接绑定，组授权延期。动作取 machine_credential.allowed_actions 与当前 role.actions／绑定的交集，两组动作数组都受代码动作目录约束。客户端声明的 scope、service、Key 或自定义头不能覆盖可信凭证范围。成员不自动授资源 read；owner、标签不授权限。引用不继承权限，规则编译必须完整校验后再做授权投影。
 
 ## 2. SDK 外观与生命周期
 
@@ -116,7 +118,9 @@ eligibility key = namespace_id + environment_id
 
 快照含 `snapshot_id / eligibility_epoch / attribute_schema_versions / attributes / captured_at / source_watermark / digest`。画像来源是平台可信画像服务；“画像属性目录”仅定义字段语义，不代表值已经存在。公开请求上传的属性只能作为非可信上下文，不能直接决定共享桶的固定资格。
 
-首次获取使用持久存储的原子 `put-if-absent`／条件写入。两个并发请求读取不同画像时，只允许一个快照成为该 key 的正式记录，另一方重读获胜值。缓存过期必须回源读取原快照，不能重新截取当前画像。
+environment 保存当前 epoch 的完整 unit、身份、画像 Schema 与 snapshot namespace 契约；该映射不可原地改写，旧 epoch ID 不复用不同语义。存在相关活跃/draining 预留时不得更换 epoch。属性目录仅保当前定义，audience_version、run 和 release 冻结使用时的完整定义；执行旧契约不能回读目录当前语义。
+
+首次获取使用既有资格 KV 的原子 `put-if-absent`／条件写入，不为每个业务用户在控制库建记录。两个并发请求读取不同画像时，只允许一个快照成为该 key 的正式记录，另一方重读获胜值。缓存过期必须回源读取原快照，不能重新截取当前画像。
 
 快照内缺字段就是该 epoch 的固定缺失状态，不在后续请求补填；所有受众求值将缺失／类型错误视为不满足。画像系统完全不可用时，返回 `eligibility_unavailable`，不把故障包装成“有效空画像”并永久写入。加入新画像字段若需要重采，要创建新的资格 epoch 和受影响运行，不能修改已有资格。
 
@@ -128,7 +132,7 @@ eligibility key = namespace_id + environment_id
 
 ## 4. 生产分桶协议 ab-bucket-sha256-v2
 
-旧草案从 v1 收敛为九字段 v2。本次 v1.2 仅将第三字段显示名 `project_id` 改为 `namespace_id`；九字段的值、顺序和编码全不变，**不升 hash 协议、不改既有 ID、不重新分桶**。fixture 中 opaque 值 `project_rec` 必须保留。
+旧草案从 v1 收敛为九字段 v2。v1.2 仅将第三字段显示名 `project_id` 改为 `namespace_id`；九字段的值、顺序和编码全不变，**不升 hash 协议、不改既有 ID、不重新分桶**。fixture 中 opaque 值 `project_rec` 必须保留。
 
 当前无生产 SDK；原型仍用 FNV 演示算法。生产新环境采用下述 v2；其他既有真实算法须并存版本、显式迁移 run，不能直接替换或重标。
 
@@ -184,7 +188,7 @@ variant bucket 用独立的 `purpose=variant` hash，不使用“在已占桶集
 
 [hash-vectors.json](./hash-vectors.json) 提供长度编码后的 payload、SHA-256 和期望桶号，覆盖普通 ID、分隔符、中文、组合字符、不同 purpose 和 salt。它是待实现 SDK 的一致性输入，不是平台的正式用户样本。
 
-运行 `node docs/服务端技术方案/verify-hash-vectors.mjs` 验证 10 组 Python 生成的向量。v1.2 只同步 fixture 的 field_order 与 Node 字段名，所有 payload／digest／bucket 保持不变。Java／Go／移动端仍须用各自编码器通过同一向量。
+运行 `node docs/服务端技术方案/verify-hash-vectors.mjs` 验证 10 组 Python 生成的向量。v1.2 已同步 fixture 的 field_order 与 Node 字段名；v1.3 不修改向量或验证脚本，所有 payload／digest／bucket 保持不变。Java／Go／移动端仍须用各自编码器通过同一向量。
 
 ## 5. 递归决策流程
 
@@ -212,7 +216,7 @@ visit(domain):
     else: preserve baseline; do not try another experiment
 ```
 
-编译器在后台校验完整拓扑与全部继承参数；scope 包含祖先和影响冲突判定的候选。UI 脱敏或只请求部分 Key 不能裁剪继承／跳过父层隔离。服务投影仅可移除已证明不影响结果的计算，并与完整树做一致性验证。
+编译器从 change_request／run 的冻结输入生成 release 完整快照，包含固定基线、完整祖先条件、参数版本和值、分组区间、epoch 契约与依赖摘要；不能从当前参数默认值或可变目录重建历史。编译器在后台校验完整拓扑与全部继承参数；scope 包含祖先和影响冲突判定的候选。UI 脱敏或只请求部分 Key 不能裁剪继承／跳过父层隔离。服务投影仅可移除已证明不影响结果的计算，并与完整树做一致性验证。
 
 同一域不同参数层可并行决策；层内只能匹配一个直接实验或子域。进入子域后不再同时执行该父层的直接实验。非重叠子域的隔离只作用于它的分支，不自动停止祖先域中的其他并行参数层。
 
@@ -220,13 +224,15 @@ visit(domain):
 
 ## 6. 配置包分发、校验和缓存
 
-配置仓库返回 manifest，包含身份、schema/hash 协议、不可变 URI、内容 digest、签名 Key ID、有效期和最低 SDK 版本。SDK 定时条件 GET 或接收更新通知，再用 ETag 查询；通知丢失可通过轮询收敛。
+配置仓库返回 manifest，包含身份、schema/hash 协议、不可变 URI、内容 digest、签名 Key ID、有效期和最低 SDK 版本。release 保存配置 URI、摘要、签名与编译版本，environment 保存活动 head 和只增撤销序号。SDK 定时条件 GET 或接收更新通知，再用 ETag 查询；通知丢失可通过轮询收敛。
+
+projection/bundle 索引可在一个 release 对象目录内管理，但每个 service + capability 必须取得独立授权的文件 URI 和摘要；普通执行服务不得下载含其他应用参数的全环境包。产物字段一旦冻结不得修改，重新编译或回滚使用新的 release/config_revision；作用域、capability 和摘要一致的内容文件可复用。
 
 加载步骤：下载至临时文件 → 校验大小与完整性 → 校验签名与 scope → 严格解析 → 检查支持的 schema/hash 版本和资源上限 → 构建只读索引 → 原子替换内存引用及 last-known-good 缓存。失败保留仍有效的旧版本，并报告明确原因。
 
 签名采用成熟 JWS 库，首期固定允许 ES256，`kid` 只从预配置可信密钥集解析；拒绝 `alg=none`、不支持算法及正文指定的任意远程密钥地址。验签依据收到的原始签名字节，不先解析再自行重序列化。配置内容摘要按 JCS 生成，用于跨端比对；JSON 必须拒绝重复 Key、NaN/Infinity、非法 Unicode。JSON 精确大整数与十进制定点金额用字符串表达，避免不同语言丢精度。[RFC 7515 JWS](https://www.rfc-editor.org/rfc/rfc7515.txt)、[RFC 8785 JCS](https://www.rfc-editor.org/rfc/rfc8785)
 
-服务端加载完整授权包；大 JSON 以不可变内容摘要去重，不能把每个 group 的百行 JSON 重复复制到每个业务请求。`Decision` 持有只读引用，业务需要修改时显式复制。返回对象不允许业务方原地修改共享缓存。
+服务端加载完整授权包；大 JSON 以不可变内容摘要去重，不能把每个实验组的百行 JSON 重复复制到每个业务请求。`Decision` 持有只读引用，业务需要修改时显式复制。返回对象不允许业务方原地修改共享缓存。
 
 配置包默认值、实验组 bundle 与模型／索引引用全部版本固定。包中可引用预装资源，但运行前必须 readiness；不得在首个用户请求内临时下载数 GB 模型而阻塞决策。
 
@@ -237,7 +243,15 @@ visit(domain):
 | 决策上下文 | scope + authority + decision_id |
 | resolve 响应 | 上述上下文键 + service_id + 当前授权投影／policy_revision |
 
-权限变化使 allow 缓存失效，在线新请求重检成员、动作及当前 policy_revision；缓存命中也不绕过鉴权。撤权不自动停止线上实验，已签发包／上下文按现有有效期与运行撤销栅栏处理；禁止宣称离线瞬时撤权。
+首期管理鉴权直查当前成员、角色和绑定，不建设 allow 缓存／跨 Namespace 失效服务。运行配置及结果缓存仍按 scope 和投影隔离；在线签发／续签重检当前授权和撤销，本地决策在有效租约及受限签名能力内执行，不要求每次 decision/getter/token 读写 SQL。撤权阻止新的鉴权／续签，不暗中停止实验；已签发包和上下文按短租约及运行撤销栅栏处理。
+
+### 6.1 租约签发与桶回收
+
+manifest 不逐条落表。每次签发／续签在短事务内检查主体、目标 release 可签发状态和撤销栅栏，持久化 `max_lease_expires_at = max(旧值, 本次到期时间)`；提交成功后才签名返回。签名失败可留下保守上界，不能先返回再异步补写。关闭续签与签发使用同一锁栅栏，涵盖所有仍可能包含目标 run 的旧 release，不只检查当前活动版本。
+
+本地 authority 只能在有效租约内签出 context，context TTL 不超过冻结契约上限；透传、resolve、重试均不能续期。关闭续签后，回收下界为所有相关旧 release 的最大持久租约到期上界加 `max_context_ttl + max_inflight + clock_skew`。allocation_reservation 保存回收证据；证明不足保持 draining，不能以多数实例 ACK 代替。回滚创建新发布，并重验桶占用与只增撤销序号，不复活已回收分配。
+
+ACK/readiness 原始记录走既有遥测，service_environment 保最近摘要。配置续签才更新租约上界；高 QPS 本地 decision/token 与事件不逐次写控制库。
 
 ## 7. 跨服务上下文
 
@@ -262,7 +276,7 @@ W3C Baggage 可传播小量诊断元数据，但不承担授权或防篡改；�
 
 ### 7.2 authority 与本地 SDK
 
-不是任何持有配置的服务都有权伪造完整决策。只有显式授予某业务 scope 的 authority 能建立和签发该 scope 上下文；普通下游只有消费权限。远程决策服务可以集中签发；高 QPS 的本地 authority 可使用短期受限签名凭据或注册决策记录，密钥权限和审计独立于配置下载权限。
+不是任何持有配置的服务都有权伪造完整决策。只有显式授予某业务 scope 的 authority 能建立和签发该 scope 上下文；普通下游只有消费权限。远程决策服务可以集中签发；高 QPS 的本地 authority 使用短期受限签名能力，只有持有有效执行／签发租约时才能签发 context；无需逐个注册 SQL 决策记录。密钥权限和审计独立于配置下载权限，运行事实走既有事件链路。
 
 下游不能仅凭“同一个 user_id”断言分组一致；还必须一致的协议、salt、epoch、资格快照、拓扑和组映射。已有 token 优先重用，不能为了追上最新配置在调用链中重新决策。
 
@@ -321,5 +335,6 @@ SDK schema 使用主次版本：新增可选观测字段可兼容；新操作符
 
 9. 成员无资源角色、跨服务私有 Key、撤权后缓存／新请求均不能越权；调试需额外动作，生产事件不接受强制分组。
 10. 只重命名 Namespace 保持 opaque ID、九字段编码和全部向量；不同 Namespace 同一用户可同时入组，不误报流量互斥。
+11. 投影 URI 不能读取其他应用文件；签发上界必须先提交，关闭续签与并发签发串行，晚签出的 context 仍被纳入回收窗口；本地决策链路不要求逐请求 SQL。
 
-这些是研发验收要求。本次只验证协议样例附件及文档结构，不代表上述生产 SDK 功能已经实现或全部测试通过。
+这些是研发验收要求。本次仅修订文档并检查示例结构，不代表上述生产 SDK 功能已经实现或全部测试通过。
