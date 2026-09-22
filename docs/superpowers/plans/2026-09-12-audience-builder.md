@@ -1,57 +1,24 @@
-# Audience Builder Implementation Plan
+# 画像属性与条件编辑器：历史实施记录
 
-> **For agentic workers:** Use the existing bounded core, UI and review agents; each owns separate files. User has authorized execution. The workspace has no Git repository, so verification is recorded in docs rather than commits.
+v13 · 2026-09-12 · 历史记录，表述整理于 2026-09-23。
 
-**Goal:** Deliver the two-tab audience module, typed attribute catalog, nested AND/OR editor and sound conflict checks.
+设计：[对应版本](../specs/2026-09-12-audience-builder-design.md)。当前规则以[文档导航](../../README.md)指向的现行文档为准。
 
-**Architecture:** Preserve legacy AND rules while adding one authoritative expression tree. Core functions own type checks, three-valued evaluation, bounded intersection proofs and immutable persistence. Shared editor supports both central management and inline creation; root owns catalog and reference views.
+## 已完成工作
 
-**Tech Stack:** Existing React, TypeScript, Vite, node:test; no additional dependencies.
+- [x] 实现类型目录、条件树、三值求值和完整 OR 交集检查。
+- [x] 共用编辑器覆盖独立管理、域内及实验内创建。
+- [x] 实现深链、属性与受众版本引用追踪。
+- [x] 验证刷新恢复、错误保护及模拟资格。
 
-**Spec:** ../specs/2026-09-12-audience-builder-design.md
+## 验收与限制
 
-## Global Constraints
+149/149 自动化、构建及浏览器核心流程通过；无失败、无跳过。
 
-- Fixed user_id eligibility snapshot, unchanged hashes, old immutable audience definitions and application-private tags.
-- 30 leaves, group depth 3; bounded DNF 64 terms, unknown proof conservatively blocks bucket reuse.
-- Attribute definitions are immutable after registration; new custom sources must reference an existing application.
-- Browser mutations use 127.0.0.1:5173; localhost user data receives no test entities.
+- 测试写入独立浏览器来源，未把原型验证等同于生产验证。
+- 未实现真实后端、Namespace、资源权限、生产 SDK 或跨设备同步。
+- 下列变化发生在后续版本，本清单不代表当前功能仍采用旧实现。
 
-## Task 1: Core and regression tests
+v14 移除画像属性来源应用，并在创建时检查；v15 引用实验改为带受众条件跳转列表。v13 的来源应用要求已失效。
 
-Files: src/profile-attributes.ts, src/audiences.ts, src/traffic.ts, tests/profile-attributes*.test.mjs, tests/audiences*.test.mjs.
-
-- [x] Write failing tests for complete OR intersections, inherited contradictions, true OR unknown, malformed trees, custom type/value checks, immutable catalog persistence and old hash preservation.
-- [x] Implement the spec's ProfileAttribute and AudienceExpression contracts; validateAudienceExpression returns structured paths and proof-limit status.
-- [x] Use the same expression in evaluation, descriptions, candidate capacity and all interval-pair conflicts. Export explainAllocationConflicts with object, intersection, reason and witness when available.
-- [x] Run node --experimental-strip-types --test tests/audiences*.test.mjs tests/profile-attributes*.test.mjs and then the full suite.
-
-## Task 2: Shared editor and allocation entry points
-
-Files: src/components/AudienceEditor.tsx, AudienceRuleBuilder.tsx, AudienceSelect.tsx, CreateExperiment.tsx, NestedDomainEditor.tsx, TrafficDomains.tsx, ExperimentDetail.tsx, audience-editor.css.
-
-- [x] Build one controlled tree editor with typed choices, 3-level boundaries, validation paths and expression preview.
-- [x] Implement manual qualification preview and display explicit unknown reasons without invented cohort counts.
-- [x] Share editor through AudienceSelect; pass experiments, preserve outer form, auto-select saved version. Only top dialog handles Escape and Tab.
-- [x] Extend simulator inputs and cache validation to catalog attributes while preserving existing snapshots.
-- [x] Render complete expressions and explain conflicts in details and allocation forms. Run build and browser integration checks.
-
-## Task 3: Catalog, routing and references
-
-Files: src/components/AudienceCenter.tsx, ProfileAttributeCenter.tsx, audience-management.css, src/audience-management.ts, tests/audience-management.test.mjs.
-
-- [x] Test nested-tree property references, inherited domain/experiment references, route decode and unknown deep links before implementing helpers.
-- [x] Replace old inline AND editor with shared AudienceEditor; add two independently addressable tabs and preserve filters on switch.
-- [x] Register custom attributes from real application catalog; show metadata, immutability and referenced audience versions/domain paths/experiments.
-- [x] Render full expression summaries and comparison result, keeping audience overlap legal in the catalog.
-
-## Task 4: Review, documentation and final verification
-
-- [x] Independent review of OR proof, version/persistence, custom snapshots, type boundaries and modal behavior; resolve meaningful findings.
-- [x] Root runs npm test and npm run build on final sources.
-- [x] Verify end-to-end browser flow from attribute registration to nested audience, version/cross-reference, inline creation and fixed-profile simulation.
-- [x] Update README, PRD, ARCHITECTURE, 联动实验设计 and docs/VERIFICATION.md with observed results and explicit production boundaries.
-
-## Completion evidence
-
-Completed 2026-09-12. Independent final `npm test`: 149/149 passing, zero failures/skips. `npm run build` passed; existing >500 kB chunk warning remains. Browser checks covered custom attribute registration, three-level audience composition, experiment and domain inline creation, shared buckets with disjoint conditions, immutable profile restoration and complete references. See [verification record](../../VERIFICATION.md). The localhost user workspace received no test entities.
+完整证据见[原型逐版验收记录](../../archive/原型逐版验收记录.md)。

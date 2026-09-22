@@ -1,8 +1,8 @@
 # SDK 与分流协议
 
-设计 v1.1 · 2026-09-22 · [返回总览](./README.md)
+设计 v1.2 · 2026-09-23 · [返回总览](./README.md)
 
-本文定义服务端决策、公开客户端接入、跨服务传播与一致性验收要求。当前原型只有浏览器内模拟器，没有可直接接入生产的 SDK。下文接口是拟实现的 SDK 外观，HTTP 字段以[接口协议](./02-接口协议.md)为准。
+本文为待实施 SDK 契约；当前只有浏览器模拟器，没有生产 SDK。HTTP 字段见[接口协议](./02-接口协议.md)，授权见 [Namespace 与权限设计](./05-Namespace与权限设计.md)。
 
 ## 1. SDK 分工与接入模式
 
@@ -15,9 +15,21 @@
 | Web／App SDK | 获取允许公开的最终值，报告真实页面／组件触发 | 经 BFF，不能持有服务凭据、画像全量或完整实验规则 |
 | 管理模拟器 | 使用候选快照解释整条分流路径 | 仅管理权限，不产生生产分配／曝光数据 |
 
-服务按环境选择 `direct` 或 `delegated`。委托关系必须同项目同环境、无环，并明确 authority 的可决策业务范围。`direct` 服务也不能在已有上游上下文时重新选择组；模式只决定谁有权建立初始决策。
+服务按环境选择 `direct` 或 `delegated`；委托须同 Namespace、同环境、无环，明确 authority 范围。已有上游上下文一律沿用；模式只决定初始决策权。
 
-一个用户可能同时参与多个参数层的实验，因此上下文包含 `assignments[]`，不能用一个全局 `A/B` 字符串表示。每个请求先确定该业务范围的全部相关分配，再对调用服务投影参数；不同服务传入不同 Key 列表不能改变分流结果。
+同一用户可同时进入不同层及不同 Namespace 的实验，Namespace 不提供用户互斥或因果隔离。上下文用 `assignments[]`，先完成业务范围内分配，再投影服务参数；请求 Key 列表不能改变分流。联合控制首页参数的团队使用同一 Namespace，通过资源授权协作。
+
+一个 Decision／上下文只属于一个 Namespace 和环境。业务请求涉及多个 Namespace 时分别建立决策、分别传递上下文，不合并参数归属或跨空间引用实验。
+
+| 操作 | 可信授权边界 |
+| --- | --- |
+| 建立决策 | 全局机器 principal + 有效 namespace_member + runtime.evaluate；凭证绑定 Namespace／环境／服务与 business_scope |
+| 解析已有上下文 | runtime.context.resolve；同 Namespace／环境，按当前服务参数投影，不换组 |
+| 读取配置、ACK、撤销栅栏 | runtime.config.read；服务投影与最小依赖包，公开客户端无全规则下载权 |
+| 事件 | event.ingest；scope、producer、类型均匹配可信凭证 |
+| 模拟／强制分组／诊断 | 额外 runtime.debug 与相关资源 read；仅沙箱，不写生产事实 |
+
+机器凭证唯一绑定 Namespace／环境／服务／principal，动作取凭证上限与当前角色绑定交集。客户端声明的 scope、service、Key 或自定义头不能覆盖可信凭证范围。成员不自动授资源 read；owner、标签不授权限。引用不继承权限，规则编译必须完整校验后再做授权投影。
 
 ## 2. SDK 外观与生命周期
 
@@ -41,13 +53,18 @@ Client.flush(deadline)
 Client.close(deadline)
 ```
 
-`initialize` 区分 `ready / degraded / unavailable`，等待有上限。`beginDecision` 固定快照、unit、资格 epoch 和业务范围，所有 getter 都从该对象读取，不再访问网络或换组。禁止使用进程全局可变的“当前用户”；上下文绑定到请求／异步任务并在结束时清理。
+`initialize` 有限等待，返回 ready／degraded／unavailable。`beginDecision` 固定快照、unit、资格 epoch 与业务范围；getter 只读该对象，不联网、不换组。上下文绑定请求／异步任务，结束即清理，不使用全局“当前用户”。
 
-`ParameterResult` 至少返回 `value / type / source / parameter_version_id / decision_id / reason`；已分配值还带 `parameter_bundle_id / digest / assignment_index`。来源为 `experiment / baseline / emergency_default`；另用 `freshness=fresh|last_known_good` 表达是否在有效授权期内回用旧配置，不能以此绕过过期和撤销。已分配后回退仍保留原 assignment 引用和期望 bundle，实际值及来源另记；从未产生可信分配时才没有 assignment。紧急默认来自调用方预先约定的业务安全值，仅在无有效参数、类型不符等情况下使用，不能悄悄标记为对照组。
+| 返回契约 | 内容 |
+| --- | --- |
+| ParameterResult | `value,type,source,parameter_version_id,decision_id,reason`；实验值另含 `parameter_bundle_id,digest,assignment_index` |
+| source | experiment／baseline／emergency_default；后者为调用方预先确认的安全值，不是假对照组 |
+| freshness | fresh／last_known_good；旧配置仍须有效、未撤销，不能靠缓存续期 |
+| 已分配后回退 | 保留原 assignment、期望 bundle；实际值与来源另记。无可信分配时才无 assignment |
 
-HTTP 响应的顶层 `parameters` 使用每 Key 的结构化值及 `assignment_index`；`assignments[]` 包含 `experiment_id / experiment_revision / run_id / variant_id / allocation_revision / layer_path / parameter_keys / parameter_bundle_id`。所有本服务可见参数都有明确来源，未命中实验时仍能返回签名配置里的基线值。业务只需查询参与了哪些实验及所在分组时读取 `getAssignments()`，不再单独请求或根据实验名称重新算组；结果只包含该服务获授权的信息。
+HTTP `parameters` 返回逐 Key 值及 assignment_index；`assignments[]` 含 experiment_id、experiment_revision、run_id、variant_id、allocation_revision、layer_path、parameter_keys、parameter_bundle_id。未命中返回固定基线。`getAssignments()` 只读当前服务授权结果，不另发请求或按名称重新分组。
 
-初始化选项应包括身份与授权凭据提供器、环境、authority 模式、配置拉取与缓存路径、超时、事件队列上限、日志脱敏策略；凭据不能硬编码在业务代码或公开客户端。连接状态由真实握手、配置加载和执行上报决定，不能由管理页面手动勾选。
+初始化提供可信凭据、Namespace／环境、authority 模式、配置与缓存、超时、队列上限及日志脱敏策略；声明范围须与凭据一致。凭据不硬编码或下发公开客户端。连接状态来自握手、配置加载和执行上报。
 
 ### 2.1 一次推荐请求的业务代码
 
@@ -78,22 +95,22 @@ localDecision.recordExecution({
 })
 ```
 
-这是伪代码，初始化和错误分支在正式 SDK 示例中补齐。资格触发可以在决策之前记录，再以 request/decision ID 关联，但必须在处理之前确定且所有组使用相同规则。只有真正采用该参数的执行步骤才记录 `applied`；读取、预取或请求未进入该步骤不算曝光。
+此为伪代码，正式示例须补初始化与错误分支。资格在处理前按各组同一规则记录，以 request/decision ID 关联；真正采用参数才记 applied，读取／预取不算曝光。
 
 ## 3. 身份与固定资格
 
 ### 3.1 稳定身份
 
-首期使用 `unit.type=user_id`，输入 ID 必须来自可信登录会话。Runtime 接口可以接收 `unit:{type,id}`，服务端身份适配器将其转换为项目级稳定假名 `unit_key`；事件中同一值记为 `unit.id_hash`。假名生成规则与密钥世代在 run 期间固定，不能每个微服务各自加盐。
+首期 `unit.type=user_id`，ID 来自可信登录会话。Runtime 接收 unit:{type,id}，身份服务转为 Namespace 内稳定 `unit_key`，事件记同值 `unit.id_hash`。规则与密钥世代在 run 期间固定，各微服务不能另加盐。原 Namespace 改名也不得更换假名策略或 ID。
 
-ID 始终是字符串：`"00123"` 与 `"123"` 不同，不能转数字、截断、隐式 trim 或按大小写折叠。支持 device/session 单元时须新建相应实验方案；不能在同一 run 中“有用户 ID 就用用户，没有就用设备”却仍把它当一致随机化单元。匿名转登录必须有显式身份策略并记录转换，首期不自动合并两份实验样本。
+ID 始终是字符串："00123" ≠ "123"；不转数字、截断、trim 或折叠大小写。device/session 须另建实验方案，同 run 不混用单位。匿名转登录须记录版本化身份策略，首期不自动合并样本。
 
 ### 3.2 资格快照协议
 
 同一层可复用桶的候选必须共享资格命名空间：
 
 ```text
-eligibility key = project + environment
+eligibility key = namespace_id + environment_id
                  + eligibility_epoch + unit_type + unit_key
 ```
 
@@ -111,9 +128,9 @@ eligibility key = project + environment
 
 ## 4. 生产分桶协议 ab-bucket-sha256-v2
 
-本次单企业部署修订将输入收敛为 9 个字段，因此协议从旧草案 v1 升为 v2，避免同名协议对应不同字节编码。旧草案保留在 Git 历史；当前没有已运行的生产 SDK，原型模拟器继续使用原有演示算法。
+旧草案从 v1 收敛为九字段 v2。本次 v1.2 仅将第三字段显示名 `project_id` 改为 `namespace_id`；九字段的值、顺序和编码全不变，**不升 hash 协议、不改既有 ID、不重新分桶**。fixture 中 opaque 值 `project_rec` 必须保留。
 
-原型 FNV 演示 hash 不直接升级为生产协议。生产新环境采用以下协议；已有真实生产分配若使用其他算法，必须并存协议版本、迁移运行，不能偷偷替换 hash。
+当前无生产 SDK；原型仍用 FNV 演示算法。生产新环境采用下述 v2；其他既有真实算法须并存版本、显式迁移 run，不能直接替换或重标。
 
 ### 4.1 输入编码
 
@@ -123,7 +140,7 @@ eligibility key = project + environment
 | --- | --- | --- | --- |
 | 1 | protocol | `ab-bucket-sha256-v2` | 相同 |
 | 2 | purpose | `layer` | `variant` |
-| 3–4 | project_id、environment_id | 授权空间身份 | 相同 |
+| 3–4 | namespace_id、environment_id | 原 opaque 空间 ID 与环境 ID；改名不换值 | 相同 |
 | 5 | node_id | layer_id | run_id |
 | 6 | epoch | allocation_epoch | variant_epoch |
 | 7 | unit_type | `user_id` 等 | 与层相同 |
@@ -167,7 +184,7 @@ variant bucket 用独立的 `purpose=variant` hash，不使用“在已占桶集
 
 [hash-vectors.json](./hash-vectors.json) 提供长度编码后的 payload、SHA-256 和期望桶号，覆盖普通 ID、分隔符、中文、组合字符、不同 purpose 和 salt。它是待实现 SDK 的一致性输入，不是平台的正式用户样本。
 
-可运行 `node docs/服务端技术方案/verify-hash-vectors.mjs` 验证 Node 参考编码器；本次另以 Python 标准库独立生成和比对。Java／Go／移动端仍需实现自己的编码器并通过同一向量，不能把一份 Node 结果称为已经验证所有语言。
+运行 `node docs/服务端技术方案/verify-hash-vectors.mjs` 验证 10 组 Python 生成的向量。v1.2 只同步 fixture 的 field_order 与 Node 字段名，所有 payload／digest／bucket 保持不变。Java／Go／移动端仍须用各自编码器通过同一向量。
 
 ## 5. 递归决策流程
 
@@ -195,7 +212,7 @@ visit(domain):
     else: preserve baseline; do not try another experiment
 ```
 
-编译后的业务 scope 必须包含正确祖先与所有影响冲突判定的直接候选；不能因只请求一个服务的 Key 而跳过父层的隔离选择。服务投影可以剔除不相关的子树计算，但需证明其与完整树求值等价，并纳入一致性测试。
+编译器在后台校验完整拓扑与全部继承参数；scope 包含祖先和影响冲突判定的候选。UI 脱敏或只请求部分 Key 不能裁剪继承／跳过父层隔离。服务投影仅可移除已证明不影响结果的计算，并与完整树做一致性验证。
 
 同一域不同参数层可并行决策；层内只能匹配一个直接实验或子域。进入子域后不再同时执行该父层的直接实验。非重叠子域的隔离只作用于它的分支，不自动停止祖先域中的其他并行参数层。
 
@@ -213,7 +230,14 @@ visit(domain):
 
 配置包默认值、实验组 bundle 与模型／索引引用全部版本固定。包中可引用预装资源，但运行前必须 readiness；不得在首个用户请求内临时下载数 GB 模型而阻塞决策。
 
-缓存区分：配置缓存按 scope+config_revision，资格按 scope+eligibility_epoch+unit_key，决策上下文按 authority+decision_id，resolve 结果还包含调用 service_id。不同服务的授权投影不能共用一个未分权限的缓存项。
+| 缓存 | 必要分区键 |
+| --- | --- |
+| 配置 | namespace_id + environment_id + service_id + projection_id + config_revision |
+| 固定资格 | scope + eligibility_epoch + unit_type + unit_key |
+| 决策上下文 | scope + authority + decision_id |
+| resolve 响应 | 上述上下文键 + service_id + 当前授权投影／policy_revision |
+
+权限变化使 allow 缓存失效，在线新请求重检成员、动作及当前 policy_revision；缓存命中也不绕过鉴权。撤权不自动停止线上实验，已签发包／上下文按现有有效期与运行撤销栅栏处理；禁止宣称离线瞬时撤权。
 
 ## 7. 跨服务上下文
 
@@ -223,7 +247,7 @@ visit(domain):
 
 ```text
 iss / aud / jti / iat / exp / schema_version
-project_id / environment_id
+namespace_id / environment_id
 decision_id / request_id / unit_type / unit_key
 config_revision / eligibility_epoch / eligibility_snapshot_id
 assignments[{run_id, experiment_revision, variant_id, parameter_bundle_id}]
@@ -232,7 +256,7 @@ revocation_revision / business_scope
 
 HTTP 可用专用 `X-Experiment-Context`，gRPC 用等价 metadata；header 仅传短 token，不塞入百行策略 JSON。异步任务将上下文引用与任务 payload 一起持久化；超过执行有效期的任务按明确规则拒绝旧处理或重新建立新业务决策，并记录二者关系，不能无提示继续旧实验。
 
-`contexts:resolve` 验证签名／引用、authority 授权、unit 和请求链绑定、受众字段、有效期与撤销栅栏，再返回本服务允许的参数。请求 scope 不能覆盖 token 的 scope。对跨服务 trace，父请求授权的子调用沿用 decision ID，但每个执行步骤有自己的 occurrence ID。
+`contexts:resolve` 依次验证凭证 scope → runtime.context.resolve → token 签名／引用 → authority、unit、请求链、目标 audience → 有效期／撤销栅栏 → 当前服务投影。请求 scope 不能覆盖凭证或 token；跨 Namespace 解析拒绝。子调用沿用 decision ID，各执行步骤独立 occurrence ID。
 
 W3C Baggage 可传播小量诊断元数据，但不承担授权或防篡改；不要将完整参数、令牌和画像写入会被下游广泛记录的 baggage。[W3C Baggage](https://www.w3.org/TR/baggage/)
 
@@ -260,7 +284,7 @@ W3C Baggage 可传播小量诊断元数据，但不承担授权或防篡改；�
 | exposure | 满足预定义实际生效／可见条件的业务点 | 已发生的曝光事实；执行失败或回退不自动算处理曝光 |
 | business | 订单／点击／请求等业务系统 | 结果事实；不要求生产者知道全部实验身份 |
 
-`get*()` 不自动记曝光。SDK 可缓存同 Decision 的 getters，但不得用“调用次数”当用户数。同一逻辑曝光的去重身份必须稳定：由项目／环境／producer／event_id 标识原始事件；需要多 run 展开的记录同时纳入 run_id，避免只保留第一个实验。
+`get*()` 不自动记曝光。SDK 可缓存同 Decision 的 getters，但不得用“调用次数”当用户数。同一逻辑曝光的去重身份必须稳定：由 Namespace／环境／producer／event_id 标识原始事件；需要多 run 展开的记录同时纳入 run_id，避免只保留第一个实验。
 
 事件使用有界队列、批发送、指数退避和 jitter；收到采集端持久 ACK 才确认发送完成。进程关闭在 deadline 内 flush，队列满或进程崩溃可能丢失，必须统计并暴露，不承诺客户端恰好一次。重要服务可配本地持久 WAL；浏览器无法保证退出时所有事件到达，关键成交应由业务后端产出。
 
@@ -276,7 +300,7 @@ fallback 至少分清：未分配时使用基线、已分配但执行失败使�
 | 值类型／Schema 不匹配 | 按 bundle 策略回退，报告期望／实际版本 |
 | 快照过期／执行租约失效 | 停止实验处理，不能无限使用旧实验配置 |
 | 资格缺失 | 不命中相关分支；默认值不计为实验对照 |
-| token 单元／服务／环境不匹配 | 拒绝解析；不能 fallback 为一次新的随机分配 |
+| token 单元／Namespace／服务／环境不匹配 | 拒绝解析；不能 fallback 为一次新的随机分配 |
 | 同层多重命中／Key 冲突 | 配置完整性故障，阻止冲突范围执行并告警 |
 | 队列满／发送失败 | 业务有界继续，记录丢失计数与降级状态 |
 
@@ -291,8 +315,11 @@ SDK schema 使用主次版本：新增可选观测字段可兼容；新操作符
 3. 固定资格首次并发写、缓存淘汰回源、属性缺失、新字段、画像不可用场景不破坏共享桶互斥性。
 4. 嵌套域、并行层、paused 占位、非重叠分支、服务投影与完整树决策结果一致。
 5. 一个请求内配置更新不改变已建立 Decision；多个线程不能交叉读取用户身份和参数。
-6. token 篡改、跨环境重放、过期、被撤销、未知 kid 均拒绝；历史事件迟到与执行授权过期分别处理。
+6. token 篡改、跨 Namespace／环境重放、伪造 scope、过期、被撤销、未知 kid 均拒绝；历史事件迟到与执行授权过期分别处理。
 7. 网络断开、冷启动、坏包、队列溢出、进程重启、紧急停止与桶 draining 有明确可测边界。
 8. 联合实验某服务模型未就绪、部分回退、缓存命中和异步重试均能报告 assigned 与 actual，不自动剔除失败样本。
+
+9. 成员无资源角色、跨服务私有 Key、撤权后缓存／新请求均不能越权；调试需额外动作，生产事件不接受强制分组。
+10. 只重命名 Namespace 保持 opaque ID、九字段编码和全部向量；不同 Namespace 同一用户可同时入组，不误报流量互斥。
 
 这些是研发验收要求。本次只验证协议样例附件及文档结构，不代表上述生产 SDK 功能已经实现或全部测试通过。

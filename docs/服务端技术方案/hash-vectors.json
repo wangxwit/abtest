@@ -1,10 +1,10 @@
 {
   "protocol": "ab-bucket-sha256-v2",
-  "note": "Synthetic single-deployment v2 fixtures; no production identities. config_revision is deliberately absent.",
+  "note": "Synthetic single-deployment v2 fixtures; no production identities. The third field label is namespace_id; preserve every opaque ID, field value, byte and bucket when renaming. config_revision is deliberately absent.",
   "field_order": [
     "protocol",
     "purpose",
-    "project_id",
+    "namespace_id",
     "environment_id",
     "node_id",
     "epoch",

@@ -32,7 +32,7 @@ function encode(fields) {
 const fixture = JSON.parse(readFileSync(new URL('./hash-vectors.json', import.meta.url), 'utf8'));
 assert.equal(fixture.protocol, 'ab-bucket-sha256-v2');
 assert.deepEqual(fixture.field_order, [
-  'protocol', 'purpose', 'project_id', 'environment_id', 'node_id',
+  'protocol', 'purpose', 'namespace_id', 'environment_id', 'node_id',
   'epoch', 'unit_type', 'unit_key', 'salt',
 ]);
 for (const vector of fixture.vectors) {
