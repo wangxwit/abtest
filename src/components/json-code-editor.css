@@ -1,0 +1,16 @@
+.jce-host { flex: 1; height: 100%; min-height: 260px; min-width: 0; overflow: hidden; text-align: left; }
+.jce-host .cm-editor { height: 100%; }
+.jce-host .cm-scroller { overscroll-behavior: contain; }
+.jce-host .cm-panel.cm-search { padding: 10px 34px 10px 12px; font: 12px/2 system-ui, sans-serif; }
+.jce-host .cm-panel.cm-search .cm-textfield { width: 180px; max-width: 90%; min-height: 30px; margin: 2px 5px 2px 0; padding: 4px 8px; border: 1px solid #d3dfd7; border-radius: 5px; background: white; color: #243a2e; font: inherit; }
+.jce-host .cm-panel.cm-search .cm-textfield:focus { outline: 2px solid #86b49b; outline-offset: 1px; }
+.jce-host .cm-panel.cm-search .cm-button { min-height: 29px; margin: 2px 4px 2px 0; padding: 2px 8px; border: 1px solid #d3dfd7; border-radius: 5px; background: white; color: #345b44; font: inherit; cursor: pointer; }
+.jce-host .cm-panel.cm-search .cm-button:hover { background: #edf4ef; }
+.jce-host .cm-panel.cm-search label { margin: 0 8px 0 2px; font-size: 11px; white-space: nowrap; }
+.jce-host .cm-panel.cm-search input[type=checkbox] { width: 12px; height: 12px; margin: 0 4px 0 0; accent-color: #247052; vertical-align: -2px; }
+.jce-host .cm-panel.cm-search [name=close] { top: 9px; right: 9px; color: #607366; font-size: 21px; cursor: pointer; }
+.jce-host .cm-tooltip-lint { max-width: min(480px, 80vw); font: 12px/1.6 system-ui, sans-serif; }
+.jce-host .cm-diagnostic { padding: 8px 10px; }
+.jce-host .cm-foldGutter .cm-gutterElement { padding: 0 3px; cursor: pointer; }
+.jce-host .cm-gutter-lint { width: 14px; }
+.jce-host .cm-foldPlaceholder:focus-visible, .jce-host .cm-panel button:focus-visible { outline: 2px solid #4f946e; outline-offset: 2px; }

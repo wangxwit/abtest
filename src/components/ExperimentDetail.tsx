@@ -1,0 +1,133 @@
+import { newExperimentHref } from '../experiment-draft-routes';
+import { useEffect, useState } from 'react';
+import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { ArrowLeft, ArrowRight, ArrowUpRight, BarChart3, CalendarDays, Check, ChevronRight, Clock3, Copy, Download, FileCheck2, Flag, FlaskConical, Info, Layers3, Pause, Play, Send, ShieldAlert, ShieldCheck, Square, Users } from 'lucide-react';
+import { downloadCSV, metrics, num, statusLabels, type Experiment, type ExperimentStatus, type Variant } from '../data';
+import { getVariantId, getVariantLabel, getVariantRole, hasExplicitVariantMetadata } from '../experiment-variants';
+import { formatPercent } from '../format-percent';
+import { getDomain, getLayer, domainGlobalTraffic, domainScope, layerScope, nodePath, getTopology } from '../traffic';
+import { BUCKET_COUNT, bucketCount, formatBucketRanges, getBucketRanges, type BucketRange } from '../bucket-ranges';
+import './experiment-flow.css';
+import './experiment-detail-buckets.css';
+import { experimentServices, getParameterService } from '../service-catalog';
+import { parameterHref } from '../application-routes';
+import { audienceSummary, defaultAudiences, describeExpression, getAudienceExpression, domainEffectiveAudience, experimentEffectiveAudience, getAudience } from '../audiences';
+import TrafficEstimate from './TrafficEstimate';
+import { parseAudienceReferenceContext, resolveAudienceReference } from '../audience-reference-routes';
+import AudienceReferenceContext, { useAudienceReferenceHash } from './AudienceReferenceContext';
+
+type Props = { experiment: Experiment; onBack: () => void; onChangeStatus: (id: string, status: ExperimentStatus) => void; notify: (message: string) => void };
+const tabs = ['概览', '指标分析', '实验配置', '操作日志'];
+const trendOffsets = [-1.48, -0.9, -1.06, -0.54, -0.68, -0.14, -0.25, 0.04, -0.23, 0.05, -0.04, 0];
+const defaults = ['支付成功率', 'P95 接口耗时'];
+function ExperimentBucketRanges({ ranges }: { ranges: BucketRange[] }) {
+  return <div className="ef-bucket-ranges"><span>{bucketCount(ranges).toLocaleString('zh-CN')} / {BUCKET_COUNT.toLocaleString('zh-CN')} 桶 · {ranges.length} 段</span>{ranges.length > 3 ? <details><summary>查看全部桶段</summary><code>{formatBucketRanges(ranges)}</code></details> : <code>{ranges.length ? formatBucketRanges(ranges) : '无桶段'}</code>}</div>;
+}
+function VariantIdentity({ variant, index }: { variant: Variant; index: number }) {
+  return <span className="ef-group-identity"><span className={`ef-group-role ${getVariantRole(variant, index)}`}>{getVariantLabel(variant, index)}</span><span><strong>{variant.name}</strong><code title={variant.id ? '稳定分组 ID' : '历史兼容标识，按原配置顺序解释'}>{getVariantId(variant, index)}</code></span></span>;
+}
+
+export default function ExperimentDetail({ experiment: exp, onBack, onChangeStatus, notify }: Props) {
+  const [tab, setTab] = useState('概览');
+  const referenceHash = useAudienceReferenceHash();
+  const referenceResolution = resolveAudienceReference('experiment', exp.id, parseAudienceReferenceContext(referenceHash), getTopology(), [exp]);
+  useEffect(() => { if (referenceResolution.status === 'matched') setTab('实验配置'); }, [referenceHash, exp.id, referenceResolution.status]);
+  const involvedServices = experimentServices(exp, getTopology());
+  const unassignedKeys = exp.parameterKeys.filter(key => !getParameterService(key, getTopology()));
+  const servicesText = involvedServices.map(service => service.name).join(' · ') || (exp.parameterKeys.length ? '参数待归属服务' : '无参数覆盖 · A/A');
+  const domain = getDomain(exp);
+  const layer = getLayer(exp);
+  const domainGlobal = domainGlobalTraffic(domain.id);
+  const globalTraffic = domainGlobal * exp.traffic / 100;
+  const breadcrumb = nodePath('layer', layer.id);
+  const inheritedScope = domainScope(domain.id);
+  const allowedParameters = layerScope(layer.id);
+  const domainMode = domain.mode === 'overlapping' ? '重叠模式 · 域内按参数分层' : '非重叠模式 · 单一继承参数层';
+  const bucketRanges = getBucketRanges(exp);
+  const bucketRange = formatBucketRanges(bucketRanges);
+  const domainBucketRanges = getBucketRanges(domain);
+  const legacyAudienceId = !exp.audienceId && exp.audience !== '全部活跃用户' ? defaultAudiences.find(audience => audience.name === exp.audience)?.id : undefined;
+  const audienceVersion = exp.audienceId || legacyAudienceId ? getAudience((exp.audienceId || legacyAudienceId)!, getTopology()) : undefined;
+  const inheritedAudience = audienceSummary(domainEffectiveAudience(domain.id, getTopology()));
+  const effectiveAudience = audienceSummary(experimentEffectiveAudience(exp, getTopology()));
+  const audienceVersionLabel = audienceVersion ? `${audienceVersion.name} · v${audienceVersion.version}${legacyAudienceId ? ' · 历史名称兼容' : ''}` : exp.audienceId ? `版本不可用 · ${exp.audienceId}` : exp.audience === '全部活跃用户' ? '继承上级，不追加限制' : `历史受众：${exp.audience} · 规则待确认`;
+  const audienceCard = <section className="card ef-audience-relationship">{referenceResolution.status === 'matched' && <AudienceReferenceContext kind="experiment" targetId={exp.id} hash={referenceHash} resolution={referenceResolution}/>}<div className="ef-card-heading"><div><h3><Users size={17} />受众准入关系</h3><p>条件基于入组前固定画像，沿祖先域逐级求交。</p></div><span className="ef-neutral-pill">版本固定</span></div><dl><div><dt>祖先域继承条件</dt><dd>{inheritedAudience}</dd></div><div><dt>实验受众版本</dt><dd><strong>{audienceVersionLabel}</strong>{audienceVersion && <small>{describeExpression(getAudienceExpression(audienceVersion), getTopology())}</small>}</dd></div><div><dt>最终有效条件</dt><dd>{effectiveAudience}</dd></div></dl><p className="ef-helper">必须同时满足全部条件。缺少必要属性时不执行实验，也不改投其他桶；祖先的其他并行参数层继续按各自规则分配。</p><TrafficEstimate nominalPercent={globalTraffic} audienceLabel={effectiveAudience} /></section>;
+  const legacyDemo = exp.variants.length === 2 && !hasExplicitVariantMetadata(exp.variants);
+  const hasData = legacyDemo && exp.participants > 0 && exp.lift !== null;
+  const controlName = exp.variants.find((variant, index) => getVariantRole(variant, index) === 'control')?.name ?? '对照组';
+  const treatmentName = exp.variants.find((variant, index) => getVariantRole(variant, index) === 'treatment')?.name ?? '实验组';
+  const lift = exp.lift ?? 0;
+  const liftText = `${lift >= 0 ? '+' : ''}${lift.toFixed(2)}%`;
+  const metric = metrics.find(m => m.name === exp.metric);
+  const baseline = metric?.key === 'payment_success_rate' ? 98.5 : parseFloat(metric?.value ?? '4.82');
+  const metricValue = (value: number) => `${value.toFixed(2)}${metric?.unit === '%' ? '%' : metric?.unit === '元' ? ' 元' : ' 次'}`;
+  const lower = lift - (exp.significant ? 1.72 : 2.46);
+  const upper = lift + (exp.significant ? 1.65 : 2.14);
+  const interval = `[${lower > 0 ? '+' : ''}${lower.toFixed(2)}%, ${upper > 0 ? '+' : ''}${upper.toFixed(2)}%]`;
+  const guardrails = exp.guardrails ?? defaults;
+  const controlSample = hasData ? Math.round(exp.participants * exp.variants[0].weight / 100) : null;
+  const treatmentSample = hasData ? exp.participants - controlSample! : null;
+  const chart = trendOffsets.map((offset, i) => ({ day: `第 ${Math.max(1, Math.round((i + 1) * Math.max(exp.duration, 1) / 12))} 天`, lift: Number((lift + offset).toFixed(2)), upper: Number((lift + offset + 1.65).toFixed(2)) }));
+  const changeStatus = (status: ExperimentStatus) => {
+    if (status === 'completed' && !window.confirm('确认结束实验？结束后将停止分配新流量，实验无法恢复，可继续查看历史结果。')) return;
+    onChangeStatus(exp.id, status);
+  };
+  const exportData = () => {
+    downloadCSV(`${exp.id}-${exp.key}-result.csv`, [
+      ['数据来源', hasData ? '交互原型两组演示数据，非真实统计计算' : '仅配置，尚无分组统计数据'], ['实验', exp.name], ['标识', exp.key], ['状态', statusLabels[exp.status]], ['核心指标', exp.metric], ['实验域', domain.name], ['参数层', layer.name], ['域内流量(%)', exp.traffic], ['全局名义流量(%)', globalTraffic], ['受众版本', audienceVersionLabel], ['有效受众条件', effectiveAudience], ['层内桶段（整数右开）', bucketRange], ['配置桶数', bucketCount(bucketRanges)], ['本层总桶数', BUCKET_COUNT], ['父层中的域桶段（整数右开）', formatBucketRanges(domainBucketRanges)], ['参数集合', exp.parameterKeys.join(', ')], ['完整分配路径', breadcrumb.map(node => node.name).join(' → ')], ['域继承参数范围', inheritedScope.join(', ')],
+      ['分组 ID', '分组名称', '角色', '组内权重(%)', '样本量（示例）', '指标值（示例）', '相对提升（示例）', '95%置信区间（示例）'],
+      ...exp.variants.map((v, i) => [getVariantId(v, i), v.name, getVariantLabel(v, i), v.weight, hasData ? (i === 0 ? controlSample! : treatmentSample!) : '暂无数据', hasData ? metricValue(i === 0 ? baseline : baseline * (1 + lift / 100)) : '暂无数据', i === 0 || !hasData ? '—' : liftText, i === 0 || !hasData ? '—' : interval]),
+      ['分组统计来源', hasData ? '原两组预置示例，样本按权重估算；未执行真实统计计算' : '仅导出分组配置，尚未接入各组曝光与指标数据'],
+      ['护栏状态', hasData ? exp.health === 'warning' ? '示例风险，不构成真实结论' : '示例正常' : '尚无数据'],
+    ]);
+    notify(hasData ? '实验结果已导出为 CSV，文件内已标注演示数据。' : '实验配置已导出为 CSV，各组统计已标注暂无数据。');
+  };
+  const sdk = `// 服务接入契约示意，以下 API 尚未实现
+// 可信入口按随机化单元分配一次，锁定同一实验版本
+const decision = experimentClient.decide('${exp.key}', {
+  ${exp.unit}: context.${exp.unit}
+});
+
+// 将可信分组上下文传递给涉及应用，不在各服务重新分流
+const assignment = verifyDecision(decision.token);
+// assignment.variantId 为稳定分组 ID，variantRole 标明 control / treatment
+// 各应用消费同一分组 ID，不按名称或数组下标推断分组
+const parameters = experimentClient.getParameters({
+  serviceId: currentService.id,
+  assignment
+});
+applyParameters(parameters);
+
+// 仅在实际使用参数后记录曝光；前端只获取允许公开的参数
+recordExposure(assignment, currentService.id);`;
+  const copySdk = async () => { try { await navigator.clipboard.writeText(sdk); notify('接入示例已复制'); } catch { notify('浏览器未允许复制，请选择代码后手动复制。'); } };
+  const empty = <div className="ef-data-empty"><div className="ef-empty-orbit"><BarChart3 size={29} /></div><h3>{exp.status === 'draft' || exp.status === 'review' ? '实验尚未启动' : '暂无分组统计数据'}</h3><p>{exp.status === 'draft' ? '完善配置并提交审核，启动后可接入各组曝光与指标数据。' : exp.status === 'review' ? '实验审核通过并启动后，需接入各组曝光与指标数据。' : '此原型尚未接入各组曝光与指标事件，不会自动填充样本量、趋势或统计结论。'}{!legacyDemo && '原有两组示例不能用于推算当前分组结果。'}</p>{exp.status === 'draft' && <button className="btn btn-primary" onClick={() => changeStatus('review')}><Send size={15} />提交审核</button>}{exp.status === 'review' && <button className="btn btn-primary" onClick={() => changeStatus('running')}><Play size={15} />演示审核通过并启动</button>}</div>;
+  const chartCard = <section className="card ef-chart-card"><div className="ef-card-heading"><div><h3>核心指标变化趋势</h3><p>{exp.metric} · {treatmentName} 相对 {controlName} 的提升</p></div><span className="ef-chart-legend"><i />{treatmentName}</span></div><div className="ef-chart-meta"><strong className={lift >= 0 ? 'ef-green' : 'ef-negative'}>{liftText}</strong><span>累计相对提升</span><span className={`ef-result-pill ${exp.significant ? 'positive' : ''}`}>{exp.significant ? '区间不包含 0' : '尚无显著差异'}</span></div><div className="ef-chart"><ResponsiveContainer width="100%" height="100%"><AreaChart data={chart} margin={{ top: 18, right: 15, left: -17, bottom: 0 }}><defs><linearGradient id={`liftGradient-${exp.id}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#20805b" stopOpacity={0.17} /><stop offset="95%" stopColor="#20805b" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 5" vertical={false} stroke="#edf0ef" /><XAxis dataKey="day" tickLine={false} axisLine={false} minTickGap={24} tick={{ fill: '#8b9590', fontSize: 11 }} dy={8} /><YAxis tickFormatter={v => `${v}%`} tickLine={false} axisLine={false} tick={{ fill: '#8b9590', fontSize: 11 }} /><Tooltip formatter={value => [`${Number(value).toFixed(2)}%`, '相对提升（示例）']} contentStyle={{ border: '1px solid #e6ebe8', borderRadius: 10, fontSize: 12 }} /><ReferenceLine y={0} stroke="#bbc7c0" strokeDasharray="4 4" /><Area type="monotone" dataKey="lift" stroke="#20805b" strokeWidth={2.4} fill={`url(#liftGradient-${exp.id})`} activeDot={{ r: 5 }} /></AreaChart></ResponsiveContainer></div><div className="ef-chart-foot"><Info size={13} />趋势、指标值及置信区间均为预置演示数据，不构成真实统计结论。</div></section>;
+  const resultTable = <section className="card ef-result-card"><div className="ef-card-heading"><div><h3>分组结果</h3><p>{hasData ? `${exp.metric} · 以 ${controlName} 为基线` : '配置已登记，各组数据尚未采集。'}</p></div><span className="ef-neutral-pill">{hasData ? '95% 置信水平 · 示例' : `${exp.variants.length} 个分组 · 待采集`}</span></div><div className="ef-table-scroll"><table className="ef-result-table"><thead><tr><th>实验分组</th><th>组内权重</th><th>分组样本</th><th>指标值</th><th>相对提升</th><th>95% 置信区间</th><th>结论</th></tr></thead><tbody>{exp.variants.map((variant, index) => {
+    const control = getVariantRole(variant, index) === 'control';
+    return <tr key={getVariantId(variant, index)}><td><VariantIdentity variant={variant} index={index} /></td><td>{formatPercent(variant.weight)}%</td><td>{hasData ? (control ? controlSample! : treatmentSample!).toLocaleString('zh-CN') : '待采集'}</td><td>{hasData ? metricValue(control ? baseline : baseline * (1 + lift / 100)) : '—'}</td><td className={hasData && !control ? lift >= 0 ? 'ef-green' : 'ef-negative' : ''}>{hasData ? control ? '基线' : liftText : '—'}</td><td>{hasData && !control ? interval : '—'}</td><td>{hasData ? control ? <span className="ef-muted">对照基线</span> : <span className={`ef-result-pill ${exp.significant ? 'positive' : ''}`}>{exp.significant ? '显著正向 · 示例' : '不显著 · 示例'}</span> : <span className="ef-muted">暂无结论</span>}</td></tr>;
+  })}</tbody></table></div><p className="ef-table-caption">{hasData ? '样本量按展示的分流权重分配；上述原两组结果仅用于界面演示，未执行统计检验。' : '分组权重为实验内部的配置比例，不代表实际样本量。接入真实数据后再计算各实验组相对对照组的结果。'}</p></section>;
+  const guardrailCard = <section className="card ef-guardrail-card"><div className="ef-card-heading"><div><h3><ShieldCheck size={17} />护栏指标</h3><p>持续观察业务与服务稳定性</p></div>{hasData && <span className={`ef-result-pill ${exp.health === 'warning' ? 'risk' : 'positive'}`}>{exp.health === 'warning' ? '1 项预警' : '全部正常'}</span>}</div>{guardrails.length ? guardrails.map((guard, i) => <div className="ef-guardrail-row" key={guard}><div className={`ef-guardrail-symbol ${hasData && exp.health === 'warning' && i === 0 ? 'warning' : ''}`}>{hasData && exp.health === 'warning' && i === 0 ? <ShieldAlert size={17} /> : <ShieldCheck size={17} />}</div><div><strong>{guard}</strong><span>{guard === 'P95 接口耗时' ? '相对上升超过 10% 时预警' : '相对下降超过 0.5% 时预警'}</span></div><div className="ef-guardrail-value">{hasData ? <><strong className={hasData && exp.health === 'warning' && i === 0 ? 'ef-negative' : 'ef-green'}>{hasData && exp.health === 'warning' && i === 0 ? '−0.68%' : guard === 'P95 接口耗时' ? '−2.14%' : '+0.03%'}</strong><span>{hasData && exp.health === 'warning' && i === 0 ? '已触发 · 示例' : '正常 · 示例'}</span></> : <span>待采集</span>}</div></div>) : <div className="ef-small-empty">未配置护栏指标。建议启动前设置业务与性能护栏。</div>}</section>;
+  const historicalBindings = exp.coordination?.bindings.length ? <section className="card ef-historical-bindings"><div className="ef-card-heading"><div><h3>历史执行绑定</h3><p>按原配置顺序保留的服务与实现标识，仅供历史查询。</p></div><span className="ef-neutral-pill">历史配置</span></div><div className="ef-historical-binding-grid">{exp.coordination.bindings.map((binding, index) => <article key={binding.id || index}><h4>{binding.system || '未填写系统名称'}<span>{binding.target === 'frontend' ? '前端' : binding.target === 'backend' ? '后端' : '算法策略'}</span></h4><p>负责人：{binding.owner || '未填写'}</p><div className="ef-historical-keys">{binding.parameterKeys.map(key => <code key={key}>{key}</code>)}</div><dl>{exp.variants.map((variant, variantIndex) => <div key={getVariantId(variant, variantIndex)}><dt><VariantIdentity variant={variant} index={variantIndex} /></dt><dd><code>{binding.artifactRefs[variantIndex] || '未填写实现标识'}</code></dd></div>)}</dl></article>)}</div><p className="ef-group-config-note">实现标识不代表已部署。各服务实际执行与曝光仍需接入 SDK 和发布系统。</p></section> : null;
+  return <div className="ef-detail-page">
+    <button className="ef-back" onClick={onBack}><ArrowLeft size={15} />返回实验管理</button>
+    <div className="ef-detail-heading"><div><div className="ef-title-line"><h1>{exp.name}</h1><span className={`ef-status ef-status-${exp.status}`}><i />{statusLabels[exp.status]}</span></div><div className="ef-detail-meta"><span className="ef-id">{exp.id}</span><span>{servicesText}{unassignedKeys.length > 0 && involvedServices.length > 0 ? ` · ${unassignedKeys.length} 个参数待归属` : ''}</span><span><Users size={13} />{exp.owner} · {exp.team}</span><span><CalendarDays size={13} />{exp.date} 创建</span></div></div><div className="ef-detail-actions"><a className="btn" href={newExperimentHref({copyExperimentId:exp.id})}>复制为新实验</a>{exp.status === 'draft' && <button className="btn btn-primary" onClick={() => changeStatus('review')}><Send size={15} />提交审核</button>}{exp.status === 'review' && <><button className="btn" onClick={() => changeStatus('draft')}><ArrowLeft size={14} />退回草稿</button><button className="btn btn-primary" onClick={() => changeStatus('running')}><FileCheck2 size={15} />演示审核通过并启动</button></>}{exp.status === 'running' && <button className="btn" onClick={() => changeStatus('paused')}><Pause size={15} />暂停实验</button>}{exp.status === 'paused' && <button className="btn btn-primary" onClick={() => changeStatus('running')}><Play size={15} />恢复实验</button>}{['running', 'paused'].includes(exp.status) && <button className="btn" onClick={() => changeStatus('completed')}><Square size={13} />结束实验</button>}{exp.status === 'completed' && <button className="btn" onClick={exportData}><Download size={15} />导出结果</button>}</div></div>
+    {hasData && exp.health === 'warning' && <div className="ef-risk-banner"><ShieldAlert size={20} /><div><strong>护栏指标触发预警，请先排查风险</strong><p>支付成功率相对下降 0.68%，超过预设 0.5% 阈值（演示数据）。暂停实验并核查异常前，不建议上线此方案。</p></div>{exp.status === 'running' && <button className="btn" onClick={() => changeStatus('paused')}>暂停排查<ArrowRight size={14} /></button>}</div>}
+    {exp.status === 'review' && <div className="ef-inline-note ef-review-notice"><Info size={16} /><span>原型演示：点击“演示审核通过并启动”可体验审批流程；生产环境需独立审核角色、权限校验与审计记录。</span></div>}
+    {exp.status === 'completed' && <div className="ef-inline-note"><Info size={16} /><span>实验已停止新用户入组，已入组样本仍需等待预注册归因窗口结束及数据成熟。停止实验不代表已经得出结论，正式决策前应完成数据质量与统计检验。</span></div>}
+    {referenceResolution.status !== 'matched' && <AudienceReferenceContext kind="experiment" targetId={exp.id} hash={referenceHash} resolution={referenceResolution}/>}
+    <div className="ef-detail-tabs" role="tablist" aria-label="实验详情">{tabs.map(t => <button role="tab" aria-selected={tab === t} key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>{t}{t === '操作日志' && <span>{exp.activities.length}</span>}</button>)}<span className="ef-demo-tag"><span />演示数据</span></div>
+    <div role="tabpanel" aria-label={tab}>
+      {tab === '概览' && <>
+        <div className="ef-summary-grid"><div className="card ef-summary-stat"><span>累计实验样本<Users size={16} /></span><strong>{hasData ? num(exp.participants) : '—'}<small>{exp.unit === 'user_id' ? '用户' : exp.unit === 'device_id' ? '设备' : '会话'}</small></strong><p>{hasData ? '原两组预置样本 · 示例' : `${exp.variants.length} 个分组 · 尚无曝光数据`}</p></div><div className="card ef-summary-stat"><span>核心指标提升<ArrowUpRight size={16} /></span><strong className={hasData && lift >= 0 ? 'ef-green' : ''}>{hasData ? liftText : '—'}</strong><p>{hasData ? exp.metric : '等待实验数据'}</p></div><div className="card ef-summary-stat"><span>域内实验流量<Layers3 size={16} /></span><strong>{exp.traffic}<small>%</small></strong><p>全局名义 {formatPercent(globalTraffic)}% · {domain.name}</p></div><div className="card ef-summary-stat"><span>累计运行<Clock3 size={16} /></span><strong>{exp.duration}<small>天</small></strong><p>{exp.status === 'completed' ? '已停止入组，结果需等待成熟' : hasData ? '持续积累样本，关注完整周期' : '启动后开始记录实验周期'}</p></div></div>
+        <section className="card ef-domain-summary"><div className="ef-card-heading"><h3><Layers3 size={17} />递归流量分配路径</h3><span className="ef-neutral-pill">{domainMode}</span></div><div className="ef-recursive-breadcrumb ef-detail-path" aria-label="完整分配路径">{breadcrumb.map((node, index) => <span key={node.kind + node.id}><small>{node.kind === 'domain' ? '域' : '层'}</small>{node.name}{index < breadcrumb.length - 1 && <ArrowRight size={11} />}</span>)}<span><small>实验</small>{exp.name}</span></div><div className="ef-domain-path"><div><span>当前域流量</span><strong>占父层 {domain.traffic}%</strong><small>沿祖先逐级相乘，全局 {formatPercent(domainGlobal)}% · 父层桶段</small><ExperimentBucketRanges ranges={domainBucketRanges} /></div><div><span>当前实验流量</span><strong>本域 {exp.traffic}% · 全局 {formatPercent(globalTraffic)}%</strong><small>{exp.status === 'draft' ? '拟分配 · 尚未预留' : exp.status === 'completed' ? '历史配置 · 已释放' : '保留桶位'}</small><ExperimentBucketRanges ranges={bucketRanges} /></div></div><div className="ef-domain-parameters"><span>实验参数</span>{exp.parameterKeys.map(key => <a key={key} href={parameterHref(key)}><code>{key}</code></a>)}{exp.parameterKeys.length === 0 && <code>无参数覆盖 · A/A</code>}</div><p>每个参数层内同一用户最多命中一个直接实验或直属子域；受众可证明互斥的配置可共享桶坐标。进入子域后递归分配。子域仅隔离父层参数，上级其他层仍可同时命中。每层有 10,000 个固定桶，配置可包含多个离散桶段，均为整数右开区间；不会因展示或刷新移动桶位。全局比例为受众过滤前名义流量。</p></section>
+        {audienceCard}
+        {hasData ? <><div className="ef-overview-grid">{chartCard}<section className="card ef-conclusion-card"><div className="ef-card-heading"><h3>实验观察</h3><FlaskConical size={17} /></div><div className={`ef-observation-icon ${exp.health === 'warning' ? 'warning' : ''}`}>{exp.health === 'warning' ? <ShieldAlert size={25} /> : <BarChart3 size={25} />}</div><h3>{exp.health === 'warning' ? '优先排查护栏风险' : exp.significant ? '核心指标呈现正向变化' : '暂未观察到明确差异'}</h3><p>{exp.health === 'warning' ? '即使核心指标有所改善，也需要先确认稳定性指标恢复至可接受范围。' : exp.significant ? `演示结果中，${exp.metric}相对提升 ${lift.toFixed(2)}%，区间未跨过 0。` : '演示区间包含 0，当前数据不足以判断方案改善效果，建议按预定周期继续观察。'}</p><div className="ef-interval"><span>相对提升的 95% 置信区间</span><strong>{interval}</strong><small>预置示例，未进行真实统计计算</small></div><button className="ef-text-link" onClick={() => setTab('指标分析')}>查看完整指标分析<ChevronRight size={15} /></button></section></div>{resultTable}</> : <><section className="card">{empty}</section>{resultTable}</>}
+        <div className="ef-overview-bottom">{guardrailCard}<section className="card ef-description-card"><div className="ef-card-heading"><h3>实验假设与背景</h3><Flag size={17} /></div>{exp.hypothesis && <blockquote>{exp.hypothesis}</blockquote>}<p>{exp.description}</p><div className="ef-detail-definition"><span>随机化单元<strong className="ef-code">{exp.unit}</strong></span><span>实验标识<strong className="ef-code">{exp.key}</strong></span></div><button className="ef-text-link" onClick={() => setTab('实验配置')}>查看实验配置<ChevronRight size={15} /></button></section></div>
+      </>}
+      {tab === '指标分析' && <div className="ef-analysis-content">{hasData ? <><div className="ef-inline-note"><Info size={16} /><span>示例按实验随机化单元（{exp.unit}）汇总；正式分析使用预注册触发条件与归因窗口，先检查 SRM 和数据质量。当前统计值均为演示数据。</span></div>{chartCard}{resultTable}{guardrailCard}</> : <><section className="card">{empty}</section>{resultTable}</>}</div>}
+      {tab === '实验配置' && <div className="ef-config-content"><div className="ef-config-grid"><section className="card ef-config-card"><h3>基本信息</h3><dl><div><dt>实验名称</dt><dd>{exp.name}</dd></div><div><dt>实验标识</dt><dd className="ef-code">{exp.key}</dd></div><div><dt>涉及应用</dt><dd>{involvedServices.length ? involvedServices.map(service => <span className="ef-config-service" key={service.id}><strong>{service.name}</strong><small>负责人：{service.owner}</small></span>) : servicesText}{unassignedKeys.length > 0 && involvedServices.length > 0 && <span className="ef-config-service-pending">{unassignedKeys.length} 个参数待归属服务</span>}</dd></div><div><dt>负责人</dt><dd>{exp.owner} · {exp.team}</dd></div><div><dt>核心指标</dt><dd>{exp.metric}</dd></div><div><dt>护栏指标</dt><dd>{guardrails.join('、') || '未设置'}</dd></div></dl></section><section className="card ef-config-card"><h3>域、参数层与流量</h3><dl><div><dt>实验域</dt><dd>{domain.name} · 占父层 {domain.traffic}% · 全局 {formatPercent(domainGlobal)}%</dd></div><div><dt>父层中的域桶段</dt><dd><ExperimentBucketRanges ranges={domainBucketRanges} /></dd></div><div><dt>完整路径</dt><dd>{breadcrumb.map(node => node.name).join(' → ')}</dd></div><div><dt>运行模式</dt><dd>{domainMode}</dd></div><div><dt>参数层</dt><dd>{layer.name}</dd></div><div><dt>域继承范围</dt><dd className="ef-code">{inheritedScope.join(', ')}</dd></div><div><dt>层允许参数</dt><dd className="ef-code">{allowedParameters.join(', ')}</dd></div><div><dt>实验参数</dt><dd className="ef-code">{exp.parameterKeys.join(', ') || '无参数覆盖 · A/A'}</dd></div><div><dt>域内流量</dt><dd>{exp.traffic}% · 全局名义 {formatPercent(globalTraffic)}%</dd></div><div><dt>层内桶段</dt><dd><ExperimentBucketRanges ranges={bucketRanges} /><small>{exp.status === 'draft' ? '尚未预留' : exp.status === 'completed' ? '已释放 · 保留历史桶段' : '已保留'}</small></dd></div><div><dt>受众版本</dt><dd>{audienceVersionLabel}</dd></div><div><dt>最终有效条件</dt><dd>{effectiveAudience}</dd></div><div><dt>随机化单元</dt><dd className="ef-code">{domain.unit} · 继承实验域</dd></div><div><dt>分流规则</dt><dd>同桶按固定画像判定有效受众 → 子域内递归分层 → 实验版本</dd></div></dl><div className="ef-inline-note ef-note-neutral"><Info size={15} /><span>隔离范围受父层约束：非重叠子域的全参数层只继承父层允许的参数，不能覆盖全局其他层。祖先域其他参数层仍独立分配；每层 10,000 个固定桶，桶段使用当前层坐标，包含起点、不含终点。</span></div></section></div>{audienceCard}<section className="card ef-config-card"><h3>版本参数</h3><p className="ef-group-config-note">同一个实验分组在各应用中使用同一组参数值。{hasExplicitVariantMetadata(exp.variants) ? '分组 ID 固定，名称与角色不影响身份识别。' : '历史分组的兼容标识按原配置顺序解释，不改写旧分配。'}</p><div className="ef-group-config-grid">{exp.variants.map((v, i) => <div className="ef-config-variant" key={getVariantId(v, i)}><div><VariantIdentity variant={v} index={i} /><span>{formatPercent(v.weight)}% 组内权重</span></div><pre>{(() => { try { return JSON.stringify(JSON.parse(v.value), null, 2); } catch { return v.value; } })()}</pre></div>)}</div></section>{historicalBindings}<section className="card ef-sdk-card"><div className="ef-card-heading"><div><h3>SDK 接入示例</h3><p>接口契约示例，SDK 尚未发布；生产接入需实现鉴权、曝光日志与配置缓存。</p></div><button className="btn btn-small" onClick={copySdk}><Copy size={14} />复制代码</button></div><pre><code>{sdk}</code></pre></section></div>}
+      {tab === '操作日志' && <section className="card ef-activity-card"><div className="ef-card-heading"><div><h3>操作日志</h3><p>实验生命周期中的变更记录 · 本地演示</p></div><span className="ef-neutral-pill">共 {exp.activities.length} 条</span></div><div className="ef-timeline">{[...exp.activities].reverse().map((activity, index) => <div className="ef-timeline-item" key={`${activity.time}-${index}`}><div className={`ef-timeline-dot ${index === 0 ? 'latest' : ''}`}>{index === 0 ? <Check size={12} /> : <span />}</div><div><strong>{activity.title}</strong><p>{activity.person}<span>·</span>{activity.time}</p></div></div>)}</div><div className="ef-inline-note ef-note-neutral"><ShieldCheck size={15} /><span>生产方案将由服务端记录不可篡改的操作审计；原型记录保存在当前浏览器。</span></div></section>}
+    </div>
+  </div>;
+}

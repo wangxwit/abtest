@@ -1,0 +1,56 @@
+.rp-modal { width: 790px; }
+.rp-modal .ef-helper, .rp-modal .ef-modal-head p, .rp-modal .ef-modal-footer > span { color: #617266; }
+.rp-modal :is(button, input, select, textarea):focus-visible { outline: 3px solid #80ad85; outline-offset: 2px; }
+.rp-modal .ef-heading-icon { flex-shrink: 0; }
+.rp-modal .ef-modal-head > div { min-width: 0; }
+.rp-modal .ef-modal-head p { line-height: 1.7; }
+.rp-modal .ef-form-grid { gap: 16px; }
+.rp-modal .ef-helper code { color: #42644e; background: #f2f6f1; border-radius: 3px; padding: 1px 4px; }
+.rp-section-heading { display: flex; align-items: center; gap: 9px; margin-bottom: 17px; }
+.rp-section-heading > span { display: grid; place-items: center; flex: none; width: 24px; height: 24px; background: #edf5ee; color: #4a7358; border: 1px solid #deeadf; border-radius: 6px; font-size: 10px; font-weight: 600; }
+.rp-section-heading h3 { margin: 0; color: #3d5948; font-size: 13px; font-weight: 600; }
+.rp-section-heading small { margin-left: auto; font-size: 10px; color: #65786a; }
+.rp-assignments { padding-top: 19px; margin-top: 7px; border-top: 1px solid #e6ece5; }
+.rp-assignments .rp-section-heading { margin-bottom: 10px; }
+.rp-assignment-hint { font-size: 11px; line-height: 1.9; color: #66766b; margin: 0 0 14px; }
+.rp-assignment-list { display: flex; flex-direction: column; gap: 10px; }
+.rp-assignment { padding: 14px 15px; background: #fff; border: 1px solid #dce8df; border-radius: 8px; }
+.rp-assignment.is-automatic { background: #fafcf9; border-color: #e3e9de; }
+.rp-assignment-domain { display: flex; align-items: flex-start; gap: 8px; }
+.rp-assignment-domain > svg { flex: none; color: #648770; margin-top: 2px; }
+.rp-assignment-domain > div { min-width: 0; flex: 1; }
+.rp-assignment-domain strong { font-size: 12px; font-weight: 550; color: #3f5f4a; line-height: 1.6; overflow-wrap: anywhere; }
+.rp-assignment-domain small { display: block; font-size: 10px; line-height: 1.7; color: #718375; margin-top: 4px; overflow-wrap: anywhere; }
+.rp-auto-badge { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; font-size: 9px; font-weight: 400; border: 1px solid #dce8dc; color: #5d7861; background: #f1f7ed; border-radius: 4px; padding: 2px 5px; }
+.rp-automatic-layer { display: flex; gap: 7px; align-items: center; margin: 11px 0 0 23px; color: #587b60; font-size: 11px; line-height: 1.7; }
+.rp-automatic-layer > svg { flex: none; }
+.rp-automatic-layer > span { overflow-wrap: anywhere; }
+.rp-layer-field { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 12px; padding-left: 23px; font-size: 11px; color: #526c5a; }
+.rp-layer-field > span { white-space: nowrap; }
+.rp-layer-field .ef-required { margin-left: 2px; }
+.rp-layer-field select { flex: 1; min-width: 170px; min-height: 36px; border: 1px solid #d5e2d7; border-radius: 6px; padding: 8px 10px; color: #3e5e49; background: #fff; font-size: 11px; }
+.rp-layer-field select[aria-invalid=true] { border-color: #c76c63; }
+.rp-layer-field .ef-error { width: 100%; }
+.rp-warning { display: flex; align-items: flex-start; gap: 8px; margin: 18px 0 0; padding: 12px 13px; border: 1px solid #ead4bd; border-radius: 7px; background: #fff8ed; color: #8b6132; font-size: 11px; line-height: 1.8; }
+.rp-warning > svg { flex: none; margin-top: 2px; }
+.rp-warning:focus { outline: 2px solid #c59660; outline-offset: 2px; }
+.rp-footer { flex-shrink: 0; }
+.rp-footer > div { flex-shrink: 0; }
+@media (max-width: 560px) {
+  .rp-modal .ef-modal-head, .rp-modal .ef-modal-body { padding: 18px; }
+  .rp-modal .ef-modal-head h2 { font-size: 17px; }
+  .rp-modal .ef-modal-head p { font-size: 10px; }
+  .rp-modal .ef-heading-icon { width: 37px; height: 37px; }
+  .rp-section-heading { flex-wrap: wrap; }
+  .rp-section-heading small { font-size: 9px; }
+  .rp-assignment { padding: 12px; }
+  .rp-assignment-domain { flex-wrap: wrap; }
+  .rp-assignment-domain > div { flex-basis: calc(100% - 25px); }
+  .rp-auto-badge { margin-left: 23px; }
+  .rp-layer-field { padding-left: 0; }
+  .rp-layer-field select { min-width: 0; width: 100%; flex-basis: 100%; }
+  .rp-footer { padding: 14px 18px; flex-wrap: wrap; }
+  .rp-footer > div { margin-left: auto; }
+}
+.rp-inline-service{margin:-5px 0 20px}.rp-inline-service-form{padding:16px;border:1px solid #e0e9d8;background:#f8fbf4;border-radius:7px;margin-top:12px}.rp-inline-service-form>p{font-size:11px;line-height:1.8;color:#7b8b6f;margin-bottom:12px}
+.rp-modal .rp-locked-service{background:#f5f9f2;border-color:#dce7d5;color:#4f7246;font-weight:500;cursor:default}

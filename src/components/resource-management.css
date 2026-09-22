@@ -1,0 +1,31 @@
+.rm-fields { min-width: 0; padding: 0; margin: 0 0 22px; border: 0; }
+.rm-fields > legend { padding: 0; margin-bottom: 13px; color: #3c5848; font-size: 12px; font-weight: 600; }
+.rm-field-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.rm-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: 12px; color: #475e50; font-weight: 500; }
+.rm-field > span { display: flex; align-items: baseline; gap: 6px; }
+.rm-field small { font-size: 10px; font-weight: 400; color: #708174; }
+.rm-field :is(input, select) { width: 100%; min-width: 0; font-size: 12px; }
+.rm-field :is(input, select):focus-visible { outline: 3px solid #80ad85; outline-offset: 2px; }
+.rm-helper { margin: 12px 0 0; color: #65776b; font-size: 11px; line-height: 1.8; }
+.rm-error { margin: 10px 0 0; color: #a7472e; font-size: 12px; line-height: 1.8; }
+.rm-panel { padding: 20px 22px; }
+.rm-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 17px; }
+.rm-panel-header h3 { margin: 0; font-size: 13px; font-weight: 600; color: #3c5848; }
+.rm-panel .rm-fields { margin-bottom: 14px; }
+.rm-summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .8fr) minmax(0, 1.4fr); gap: 14px; margin: 0; }
+.rm-summary dt { color: #718175; font-size: 11px; margin-bottom: 8px; }
+.rm-summary dd { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; color: #3f5a49; font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.rm-unset { color: #7b877e; font-weight: 400; }
+.rm-due-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 4px; font-size: 10px; background: #fff4de; color: #866224; }
+.rm-due-badge.overdue { background: #fff0e9; color: #a45032; }
+.rm-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 16px; }
+.rm-saved { display: flex; align-items: center; gap: 5px; margin: 12px 0 0; color: #35704c; font-size: 11px; }
+.rm-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (max-width: 680px) {
+  .rm-field-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rm-field:last-child:nth-child(3) { grid-column: 1 / -1; }
+  .rm-panel { padding: 17px; }
+  .rm-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .rm-summary > div:last-child { grid-column: 1 / -1; }
+}
+@media (max-width: 380px) { .rm-field-grid { grid-template-columns: minmax(0, 1fr); } }

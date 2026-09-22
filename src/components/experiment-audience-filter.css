@@ -1,0 +1,9 @@
+.experiment-table-card .table-filters{flex-wrap:wrap;gap:8px}
+.experiment-audience-select{display:flex;align-items:center;gap:6px;color:#6c855d;min-width:0}
+.experiment-audience-select select{max-width:220px;min-width:145px;text-overflow:ellipsis}
+.experiment-audience-active{display:flex;align-items:center;gap:10px;margin:0 20px 16px;padding:12px 14px;border:1px solid #dce8d4;background:#f5f9f0;border-radius:7px;color:#607c4d}
+.experiment-audience-active>div{flex:1;min-width:0}
+.experiment-audience-active strong{display:block;font-size:12px;font-weight:550;overflow-wrap:anywhere}
+.experiment-audience-active span{display:block;font-size:11px;color:#80916f;margin-top:5px;line-height:1.6}
+.experiment-audience-active.has-error{border-color:#edd9c5;background:#fcf7ef;color:#95673b}
+@media(max-width:760px){.experiment-audience-select{flex:1}.experiment-audience-select select{flex:1;max-width:100%}.experiment-audience-active{margin:0 13px 13px;flex-wrap:wrap}.experiment-audience-active>div{min-width:180px}}
