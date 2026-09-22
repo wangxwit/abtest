@@ -1,6 +1,6 @@
 # SDK 与分流协议
 
-设计 v1.0 · 2026-09-19 · [返回总览](./README.md)
+设计 v1.1 · 2026-09-22 · [返回总览](./README.md)
 
 本文定义服务端决策、公开客户端接入、跨服务传播与一致性验收要求。当前原型只有浏览器内模拟器，没有可直接接入生产的 SDK。下文接口是拟实现的 SDK 外观，HTTP 字段以[接口协议](./02-接口协议.md)为准。
 
@@ -93,7 +93,7 @@ ID 始终是字符串：`"00123"` 与 `"123"` 不同，不能转数字、截断�
 同一层可复用桶的候选必须共享资格命名空间：
 
 ```text
-eligibility key = tenant + project + environment
+eligibility key = project + environment
                  + eligibility_epoch + unit_type + unit_key
 ```
 
@@ -109,29 +109,31 @@ eligibility key = tenant + project + environment
 
 页面场景、请求时间、网络状态等动态上下文可用于执行某个业务功能，但不能为桶坐标复用提供互斥证明。固定资格负责“这个单位是否可以进入分配”，动态触发负责“这次请求是否实际走到功能”。即使前者不变，后者仍可能受处理影响；指标分析不得自动用处理后的触发事件筛掉不活跃用户。
 
-## 4. 生产分桶协议 ab-bucket-sha256-v1
+## 4. 生产分桶协议 ab-bucket-sha256-v2
+
+本次单企业部署修订将输入收敛为 9 个字段，因此协议从旧草案 v1 升为 v2，避免同名协议对应不同字节编码。旧草案保留在 Git 历史；当前没有已运行的生产 SDK，原型模拟器继续使用原有演示算法。
 
 原型 FNV 演示 hash 不直接升级为生产协议。生产新环境采用以下协议；已有真实生产分配若使用其他算法，必须并存协议版本、迁移运行，不能偷偷替换 hash。
 
 ### 4.1 输入编码
 
-字段固定为下列顺序的 **10 个非空字符串**：
+字段固定为下列顺序的 **9 个非空字符串**：
 
 | 顺序 | 字段 | 层分流取值 | 实验组分流取值 |
 | --- | --- | --- | --- |
-| 1 | protocol | `ab-bucket-sha256-v1` | 相同 |
+| 1 | protocol | `ab-bucket-sha256-v2` | 相同 |
 | 2 | purpose | `layer` | `variant` |
-| 3–5 | tenant_id、project_id、environment_id | 授权空间身份 | 相同 |
-| 6 | node_id | layer_id | run_id |
-| 7 | epoch | allocation_epoch | variant_epoch |
-| 8 | unit_type | `user_id` 等 | 与层相同 |
-| 9 | unit_key | 可信身份服务的稳定假名 | 相同 |
-| 10 | salt | 128 位随机值的小写 32 位十六进制文本 | run 独立的 salt |
+| 3–4 | project_id、environment_id | 授权空间身份 | 相同 |
+| 5 | node_id | layer_id | run_id |
+| 6 | epoch | allocation_epoch | variant_epoch |
+| 7 | unit_type | `user_id` 等 | 与层相同 |
+| 8 | unit_key | 可信身份服务的稳定假名 | 相同 |
+| 9 | salt | 128 位随机值的小写 32 位十六进制文本 | run 独立的 salt |
 
-每个字段 UTF-8 编码，不做 Unicode 规范化；拒绝不合法 Unicode 标量（如孤立 surrogate）。输入字节由 4 字节无符号大端字段个数 `10` 开始，再按顺序拼接每字段的 `4 字节大端 UTF-8 字节长度 + 字段字节`。单字段最长 4096 字节。长度按字节，不按 Java／JavaScript 字符数。salt 是文本字段，不再次 hex decode。
+每个字段 UTF-8 编码，不做 Unicode 规范化；拒绝不合法 Unicode 标量（如孤立 surrogate）。输入字节由 4 字节无符号大端字段个数 `9` 开始，再按顺序拼接每字段的 `4 字节大端 UTF-8 字节长度 + 字段字节`。单字段最长 4096 字节。长度按字节，不按 Java／JavaScript 字符数。salt 是文本字段，不再次 hex decode。
 
 ```text
-payload = U32BE(10) || Σ[ U32BE(byteLength(UTF8(field))) || UTF8(field) ]
+payload = U32BE(9) || Σ[ U32BE(byteLength(UTF8(field))) || UTF8(field) ]
 digest = SHA256(payload)
 u = digest 前 8 字节，以 unsigned 64-bit big-endian 解释
 bucket = u mod 10000
@@ -221,7 +223,7 @@ visit(domain):
 
 ```text
 iss / aud / jti / iat / exp / schema_version
-tenant_id / project_id / environment_id
+project_id / environment_id
 decision_id / request_id / unit_type / unit_key
 config_revision / eligibility_epoch / eligibility_snapshot_id
 assignments[{run_id, experiment_revision, variant_id, parameter_bundle_id}]

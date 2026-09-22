@@ -10,7 +10,7 @@
 
 当前可运行交付为 React / TypeScript 浏览器交互原型：应用目录及应用内参数维护、本地服务目录／环境模式、参数归属与标签、层域负责人和使用期限、全页实验草稿工作区、多个实验分组、长 JSON 源码／只读结构差异、分流模拟、localStorage 保存和导出。它没有生产鉴权、服务端分流、SDK、事件采集、真实统计、审批或配置发布能力。
 
-本文中的生产服务、运行时协议、生产门禁和 SLO 均是待实现方案；原型中的数字不能证明性能、显著性或业务收益。本方案也不预先承诺合规认证或现成多租户隔离。原型内的分流模拟器在浏览器计算固定桶位、域归属、各层实验命中及参数合并，仅验证规则，不处理生产请求；受众资格以同一用户的固定入组快照判断；条件为未知时不执行，也不换桶补量。
+本文中的生产服务、运行时协议、生产门禁和 SLO 均是待实现方案；原型中的数字不能证明性能、显著性或业务收益。本方案面向单企业部署，保留项目与环境权限边界，不设计多租户能力，也不预先承诺合规认证。原型内的分流模拟器在浏览器计算固定桶位、域归属、各层实验命中及参数合并，仅验证规则，不处理生产请求；受众资格以同一用户的固定入组快照判断；条件为未知时不执行，也不换桶补量。
 
 ## 2. Google 论文模型与实现边界
 
@@ -325,7 +325,7 @@ flowchart TB
 
 | 实体 | 主键 / 关键字段 | 不变量 |
 | --- | --- | --- |
-| Tenant / Project / Environment | tenant_id / project_id / environment | 查询、缓存、队列、对象存储和密钥均带隔离边界 |
+| Project / Environment | project_id / environment | 查询、缓存、队列、对象存储和密钥均带隔离边界 |
 | Domain | domain_id、parent_layer_id（根域为空）、模式、routing_unit、流量段、domain_epoch、audience_id | 同父层共享分桶空间；区间复用须证明固定资格互斥，实际条件包含祖先域；调整会迁移样本 |
 | Layer | layer_id、domain_id、normal / launch、parameter_ids | 重叠域的普通层参数不相交；非重叠域普通层覆盖全部可用参数 |
 | Service / ServiceEnvironment | service_id、owner、type、environment、mode、decision_service_id | 参数维护责任与决策位置分离，跨环境委托与循环不允许 |
@@ -346,7 +346,7 @@ flowchart TB
 
 ### 4.1 生产中如何强制控制关系（待实现）
 
-控制 API 是所有写入的统一入口。页面的选择范围用于提前反馈；最终约束由服务端事务和配置编译共同执行。配置关系应按租户、项目、环境和 revision 隔离。
+控制 API 是所有写入的统一入口。页面的选择范围用于提前反馈；最终约束由服务端事务和配置编译共同执行。配置关系应按项目、环境和 revision 隔离。
 
 | 控制对象 | 持久化约束与提交校验 | 失败时的行为 |
 | --- | --- | --- |
@@ -367,12 +367,12 @@ flowchart TB
 
 ## 5. 示例协议
 
-以下是待实现的 JSON 契约示例，不是现有 API；租户与身份由可信入口确定，不能仅相信请求正文。
+以下是待实现的 JSON 契约示例，不是现有 API；身份与项目授权由可信入口确定，不能仅相信请求正文。
 
 ```json
 {
   "context": {
-    "tenant_id": "tenant_demo", "project_id": "commerce", "environment": "prod",
+    "project_id": "commerce", "environment": "prod",
     "unit_type": "user_id", "unit_id": "pseudonymous-123", "request_id": "req-01"
   },
   "decision": {
@@ -389,7 +389,7 @@ flowchart TB
 {
   "event_id": "evt-01", "event_type": "experiment_exposure", "schema_version": 1,
   "occurred_at": "2026-09-06T03:00:00Z", "received_at": "2026-09-06T03:00:01Z",
-  "tenant_id": "tenant_demo", "project_id": "commerce", "environment": "prod",
+  "project_id": "commerce", "environment": "prod",
   "unit_type": "user_id", "unit_id": "pseudonymous-123", "decision_id": "dec-01",
   "experiment_key": "homepage_fullstack_v1", "assigned_variant": "B",
   "domain_id": "exclusive", "domain_epoch": 1, "layer_id": "full",
@@ -417,7 +417,7 @@ flowchart TB
 
 ## 7. 透传、曝光与指标
 
-- 内部 HTTP / gRPC 透传精简签名 token，包含实验、变体、epoch、revision、决策 ID 与时效；入口清理外部伪造头，下游校验签名和租户环境。
+- 内部 HTTP / gRPC 透传精简签名 token，包含实验、变体、epoch、revision、决策 ID 与时效；入口清理外部伪造头，下游校验签名和项目环境。
 - Baggage 可承载上下文但不提供身份认证；设置长度上限，不放密钥或完整画像，不向外域传播。CDN 缓存与 hydration 必须按变体隔离相关输出。[W3C Baggage](https://www.w3.org/TR/baggage/)
 - **Assigned** 表示随机分配，**triggered** 表示有被影响机会，**delivered** 表示实际执行或展示；读取配置不能自动替代曝光。
 - 对照与处理在同一位置判断触发资格，避免以处理后的按钮点击筛选样本。触发分析需验证条件不受处理改变及未触发群体的效果。[Microsoft 触发分析](https://www.microsoft.com/en-us/research/articles/patterns-of-trustworthy-experimentation-post-experiment-stage)
@@ -450,7 +450,7 @@ V1 建议固定周期频率学派分析：预注册一个主指标、少量护�
 
 紧急停止优先级最高，专门权限可止损并完整留痕；记录各区域 / SDK 的生效覆盖。断网客户端无法承诺即时撤回。开关也不能自动逆转已发生的业务副作用，需兼容、幂等与补偿方案。
 
-租户 → 项目 → 环境实现资源隔离；RBAC 先覆盖管理员、实验负责人、接入者、分析师、审批者与只读。需要时扩展 SSO / SCIM、资源级策略、短期机器凭证与地域驻留。
+单企业部署下通过项目 → 环境实现资源隔离；RBAC 先覆盖管理员、实验负责人、接入者、分析师、审批者与只读。需要时扩展 SSO / SCIM、资源级策略、短期机器凭证与地域驻留。
 
 审计记录 actor / time / reason、before / after、UI / API / GitOps 来源、审批与下发结果。结果快照附指标、分析代码、配置和数据 watermark 版本，可重算复现。
 
@@ -459,7 +459,7 @@ V1 建议固定周期频率学派分析：预注册一个主指标、少量护�
 | 顺序 | 交付内容 | 进入下一阶段的条件 |
 | --- | --- | --- |
 | 1. 契约盘点 | 首条业务链、ID、随机单元、指标来源、默认行为 | 平台、数据和业务 owner 共同确认 |
-| 2. 控制面与安全 | 域、层、参数目录、实验、版本与审批 | 跨租户、参数越层、兄弟域冲突、非法域变更检查通过 |
+| 2. 控制面与安全 | 域、层、参数目录、实验、版本与审批 | 跨项目越权、参数越层、兄弟域冲突、非法域变更检查通过 |
 | 3. 单链路 SDK | 优先现有前后端语言，决策 / 透传 / 快照 | golden vectors、离线、过期、回退和缓存验证 |
 | 4. 数据与 A/A | Assignment、触发、生效、业务结果、指标 | 去重、迟到、关联完整性、SRM 与 A/A 验证 |
 | 5. 低风险试点 | 一个前后端联动实验，小流量渐进放量 | 真实执行率、质量门禁、应急停止与结果复现 |
@@ -474,7 +474,7 @@ V1 建议固定周期频率学派分析：预注册一个主指标、少量护�
 
 单独定义决策可用率、默认回退率、配置陈旧率、事件丢失 / 重复率、跨端错组率、数据新鲜度和审计完整率；用灰度与故障演练建立基线后再确定正式 SLO。离线端不纳入“已连接 SDK”分母，须另报离线占比，避免隐藏未覆盖用户。
 
-尚需确认：现有前后端语言、身份和埋点、日活 / 决策峰值、延迟预算、仓库与流式链路、模型平台、租户边界、观察周期、数据驻留与团队投入。确认前不锁定基础设施供应商、工期或固定业务收益。
+尚需确认：现有前后端语言、身份和埋点、日活 / 决策峰值、延迟预算、仓库与流式链路、模型平台、项目权限边界、观察周期、数据驻留与团队投入。确认前不锁定基础设施供应商、工期或固定业务收益。
 
 ## v13 验证与限制记录
 
